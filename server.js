@@ -1,62 +1,93 @@
 // server.js
-import express from "express";
-import cors from "cors";
-import path from "path";
-import { fileURLToPath } from "url";
+const express = require("express");
+const cors = require("cors");
+const fs = require("fs");
+const path = require("path");
 
 const app = express();
+const PORT = 3000;
+
 app.use(cors());
 app.use(express.json());
 
-// === setup path untuk akses file html (serve dari folder ini) ===
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-// Serve static files from the same folder as server.js (works with the uploaded index.html/login.html/register.html)
-const frontendPath = path.join(__dirname, ".");
-app.use(express.static(frontendPath));
+// === Path folder frontend ===
+const publicPath = path.join(__dirname, "..", "frontend");
+app.use(express.static(publicPath)); // biar HTML, CSS, JS bisa diakses
 
-// === data sementara ===
-let users = [];
-let sessions = {};
-let devices = [];
+// === DATA FILE ===
+const DATA_FILE = path.join(__dirname, "data.json");
 
-// === register ===
+// ====== Fungsi bantu ======
+function loadData() {
+  if (!fs.existsSync(DATA_FILE)) {
+    fs.writeFileSync(DATA_FILE, JSON.stringify({ users: [], devices: [] }, null, 2));
+  }
+  return JSON.parse(fs.readFileSync(DATA_FILE));
+}
+function saveData(data) {
+  fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
+}
+
+// ====== ROUTE UTAMA (TAMPILAN) ======
+app.get("/", (req, res) => {
+  res.sendFile(path.join(publicPath, "login.html")); // default ke login
+});
+
+app.get("/login", (req, res) => {
+  res.sendFile(path.join(publicPath, "login.html"));
+});
+
+app.get("/register", (req, res) => {
+  res.sendFile(path.join(publicPath, "register.html"));
+});
+
+app.get("/index", (req, res) => {
+  res.sendFile(path.join(publicPath, "index.html"));
+});
+
+// ====== API REGISTER ======
 app.post("/register", (req, res) => {
   const { username, password } = req.body;
   if (!username || !password)
     return res.status(400).json({ error: "Lengkapi data!" });
 
-  if (users.find(u => u.username === username))
+  const data = loadData();
+  if (data.users.find(u => u.username === username))
     return res.status(409).json({ error: "Username sudah digunakan!" });
 
-  users.push({ username, password });
+  data.users.push({ username, password });
+  saveData(data);
   res.json({ message: "Registrasi berhasil!" });
 });
 
-// === login ===
+// ====== API LOGIN ======
+const sessions = {}; // token sementara
+
 app.post("/login", (req, res) => {
   const { username, password } = req.body;
-  const user = users.find(u => u.username === username && u.password === password);
-  if (!user) return res.status(401).json({ error: "Username / password salah!" });
+  const data = loadData();
+  const user = data.users.find(u => u.username === username && u.password === password);
+
+  if (!user) return res.status(401).json({ error: "Username atau password salah!" });
 
   const token = Math.random().toString(36).substring(2);
   sessions[token] = username;
   res.json({ message: "Login berhasil!", token });
 });
 
-// === middleware auth ===
+// ====== AUTH Middleware ======
 function auth(req, res, next) {
   const token = req.headers.authorization;
   if (!token || !sessions[token])
     return res.status(403).json({ error: "Harus login dulu!" });
-  // optional: set req.user
   req.user = sessions[token];
   next();
 }
 
-// === route devices ===
+// ====== API DEVICES ======
 app.get("/devices", auth, (req, res) => {
-  res.json({ data: devices });
+  const data = loadData();
+  res.json({ data: data.devices });
 });
 
 app.post("/devices", auth, (req, res) => {
@@ -64,29 +95,25 @@ app.post("/devices", auth, (req, res) => {
   if (!deviceId || !deviceName)
     return res.status(400).json({ error: "Lengkapi data!" });
 
-  if (devices.find(d => d.deviceId === deviceId))
+  const data = loadData();
+  if (data.devices.find(d => d.deviceId === deviceId))
     return res.status(409).json({ error: "Device sudah ada!" });
 
-  devices.push({ deviceId, deviceName });
+  data.devices.push({ deviceId, deviceName });
+  saveData(data);
   res.json({ message: "Device berhasil ditambah!" });
 });
 
 app.delete("/devices/:id", auth, (req, res) => {
-  const index = devices.findIndex(d => d.deviceId === req.params.id);
+  const data = loadData();
+  const index = data.devices.findIndex(d => d.deviceId === req.params.id);
   if (index === -1)
     return res.status(404).json({ error: "Device tidak ditemukan!" });
 
-  devices.splice(index, 1);
+  data.devices.splice(index, 1);
+  saveData(data);
   res.json({ message: "Device berhasil dihapus!" });
 });
 
-// Export app for serverless platforms (Vercel) AND start listener when running locally (non-production)
-export default app;
-
-const PORT = process.env.PORT || 3000;
-// Start server only when not in production (so Vercel can import the app without listen)
-if (process.env.NODE_ENV !== "production") {
-  app.listen(PORT, () => {
-    console.log(`Server running on http://localhost:${PORT}`);
-  });
-}
+// ====== Jalankan server ======
+app.listen(PORT, () => console.log(`✅ Server jalan di http://localhost:${PORT}`));
