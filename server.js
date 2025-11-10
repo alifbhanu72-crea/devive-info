@@ -1,3 +1,4 @@
+// server.js
 import express from "express";
 import cors from "cors";
 import path from "path";
@@ -7,10 +8,11 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// === setup path untuk akses file html ===
+// === setup path untuk akses file html (serve dari folder ini) ===
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const frontendPath = path.join(__dirname, "../frontend");
+// Serve static files from the same folder as server.js (works with the uploaded index.html/login.html/register.html)
+const frontendPath = path.join(__dirname, ".");
 app.use(express.static(frontendPath));
 
 // === data sementara ===
@@ -47,6 +49,8 @@ function auth(req, res, next) {
   const token = req.headers.authorization;
   if (!token || !sessions[token])
     return res.status(403).json({ error: "Harus login dulu!" });
+  // optional: set req.user
+  req.user = sessions[token];
   next();
 }
 
@@ -76,5 +80,13 @@ app.delete("/devices/:id", auth, (req, res) => {
   res.json({ message: "Device berhasil dihapus!" });
 });
 
-// INI PENTING: jangan app.listen(), tapi export default
+// Export app for serverless platforms (Vercel) AND start listener when running locally (non-production)
 export default app;
+
+const PORT = process.env.PORT || 3000;
+// Start server only when not in production (so Vercel can import the app without listen)
+if (process.env.NODE_ENV !== "production") {
+  app.listen(PORT, () => {
+    console.log(`Server running on http://localhost:${PORT}`);
+  });
+}
